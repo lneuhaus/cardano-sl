@@ -158,48 +158,44 @@ lrcDo genesisConfig epoch consumers = do
     blundsToRollback <- DB.loadBlundsFromTipWhile genesisHash whileAfterCrucial
     blundsToRollbackNE <-
         maybeThrow UnknownBlocksForLrc (atLeastKNewestFirst blundsToRollback)
-    case era of
-        Original -> do
-            seed <- sscCalculateSeed (configBlockVersionData genesisConfig) epoch >>= \case
-                Right s -> do
-                    logInfo $ sformat
-                        ("Calculated seed for epoch "%build%" successfully") epoch
-                    return s
-                Left _ -> do
-                    -- Critical error means that the system is in dangerous state.
-                    -- For now let's consider all errors critical, maybe we'll revise it later.
-                    unless (noReportNoSecretsForEpoch1 && epoch == 1) $ do
-                        whenJustM (view misbehaviorMetrics) $ liftIO .
-                            Metrics.inc . _mmSscFailures
-                    getSeed (epoch - 1) >>=
-                        maybeThrow (CanNotReuseSeedForLrc (epoch - 1))
-            putSeed epoch seed
-            -- Roll back to the crucial slot and calculate richmen, etc.
-            withBlocksRolledBack blundsToRollbackNE $ do
-                issuersComputationDo epoch
-                richmenComputationDo epoch consumers
-                DB.sanityCheckDB $ configGenesisData genesisConfig
-                leadersComputationDo (configEpochSlots genesisConfig) epoch seed
 
-        OBFT _ -> do
-            -- During OBFT, we don't need to perform any SSC operations such as
-            -- calculating the seed for FTS. Also, we don't need to perform any
-            -- leader schedule computations via `leadersComputationDo` since we
-            -- follow a strict round-robin schedule for OBFT.
-            --
-            -- However, we do need to perform the issuers and richmen
-            -- computations since update adoption depends on this data being
-            -- available in the database.
-            --
-            -- @intricate @mhuesch:
-            -- There is a possibility for the richmen (calculated and stored
-            -- in the db via `richmenComputationDo`) and the genesis
-            -- stakeholders (which are utilized for the OBFT schedule) to
-            -- diverge.
-            withBlocksRolledBack blundsToRollbackNE $ do
-                issuersComputationDo epoch
-                richmenComputationDo epoch consumers
-                DB.sanityCheckDB $ configGenesisData genesisConfig
+    withBlocksRolledBack blundsToRollbackNE $ do
+        issuersComputationDo epoch
+        richmenComputationDo epoch consumers
+        DB.sanityCheckDB $ configGenesisData genesisConfig
+
+        -- During OBFT, we don't need to perform any SSC operations such as
+        -- calculating the seed for FTS. Also, we don't need to perform any
+        -- leader schedule computations via `leadersComputationDo` since we
+        -- follow a strict round-robin schedule for OBFT.
+        --
+        -- However, we do need to perform the issuers and richmen
+        -- computations since update adoption depends on this data being
+        -- available in the database.
+        --
+        -- @intricate @mhuesch:
+        -- There is a possibility for the richmen (calculated and stored
+        -- in the db via `richmenComputationDo`) and the genesis
+        -- stakeholders (which are utilized for the OBFT schedule) to
+        -- diverge.
+        case era of
+            Original -> do
+                seed <- sscCalculateSeed (configBlockVersionData genesisConfig) epoch >>= \case
+                    Right s -> do
+                        logInfo $ sformat
+                            ("Calculated seed for epoch "%build%" successfully") epoch
+                        return s
+                    Left _ -> do
+                        -- Critical error means that the system is in dangerous state.
+                        -- For now let's consider all errors critical, maybe we'll revise it later.
+                        unless (noReportNoSecretsForEpoch1 && epoch == 1) $ do
+                            whenJustM (view misbehaviorMetrics) $ liftIO .
+                                Metrics.inc . _mmSscFailures
+                        getSeed (epoch - 1) >>=
+                            maybeThrow (CanNotReuseSeedForLrc (epoch - 1))
+                putSeed epoch seed
+                leadersComputationDo (configEpochSlots genesisConfig) epoch seed
+            OBFT _ -> pass
   where
     genesisHash = configGenesisHash genesisConfig
     atLeastKNewestFirst :: forall a. NewestFirst [] a -> Maybe (NewestFirst NE a)
