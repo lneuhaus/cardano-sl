@@ -473,6 +473,13 @@ genHeaderAndParams pm era = do
                 OBFT ObftStrict  -> ObftStrictLeaders <$> thisEpochLeaderSchedule
                 OBFT ObftLenient -> do
                     ls <- thisEpochLeaderSchedule
+                    -- FIXME IN CBR-504:
+                    -- Decided to hardcode some values here since this
+                    -- generator is critically broken and always returns a
+                    -- `Nothing` for `vhpLeaders`. Therefore, when
+                    -- `Pos.Chain.Block.Logic.Integrity.verifyHeader` is
+                    -- provided with this `VerifyHeaderParams` instance, slot
+                    -- leader schedule verification isn't even performed.
                     pure $ ObftLenientLeaders (Set.fromList (toList ls))
                                               (Core.BlockCount 5)
                                               (OldestFirst [])
